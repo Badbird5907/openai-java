@@ -1,8 +1,10 @@
 package com.theokanning.openai.service;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategy;
 import com.fasterxml.jackson.databind.node.TextNode;
@@ -65,12 +67,15 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 public class OpenAiService {
 
     private static final String BASE_URL = "https://api.openai.com/";
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(10);
     private static final ObjectMapper mapper = defaultObjectMapper();
+    public static ObjectMapper getMapper() { return mapper; }
 
     private final OpenAiApi api;
     private final ExecutorService executorService;
@@ -605,6 +610,13 @@ public class OpenAiService {
                 .build();
     }
 
+    public static Function<String, JsonNode> functionCallMutator = s -> {
+        try {
+            return mapper.readTree(s);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+    };
     public Flowable<ChatMessageAccumulator> mapStreamToAccumulator(Flowable<ChatCompletionChunk> flowable) {
         ChatFunctionCall functionCall = new ChatFunctionCall(null, null);
         ChatMessage accumulatedMessage = new ChatMessage(ChatMessageRole.ASSISTANT.value(), null);
@@ -627,7 +639,7 @@ public class OpenAiService {
 
             if (chunk.getChoices().get(0).getFinishReason() != null) { // last
                 if (functionCall.getArguments() != null) {
-                    functionCall.setArguments(mapper.readTree(functionCall.getArguments().asText()));
+                    functionCall.setArguments(functionCallMutator.apply(functionCall.getArguments().asText()));
                     accumulatedMessage.setFunctionCall(functionCall);
                 }
             }
